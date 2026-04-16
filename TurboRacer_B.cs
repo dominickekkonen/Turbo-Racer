@@ -16,7 +16,7 @@ class Player
     public string Name { get; set; } = "Driver";
     public int X => validPositions[positionIndex];
     public int Y { get; } = 18;
-    public int Lives { get; set; } = 3; // This will be set by difficulty
+    public int Lives { get; set; } = 3;
     public int Score { get; set; } = 0;
 
     public string CarColor { get; set; } = "\x1b[36m";
@@ -24,13 +24,7 @@ class Player
 
     public void MoveLeft() { if (positionIndex > 0) positionIndex--; }
     public void MoveRight() { if (positionIndex < validPositions.Length - 1) positionIndex++; }
-
-    // Explicitly calculate hearts based on current lives
-    public string GetHearts()
-    {
-        int current = Math.Max(0, Lives);
-        return new string('♥', current);
-    }
+    public string GetHearts() => new string('♥', Math.Max(0, Lives));
 }
 
 struct ScoreEntry
@@ -73,7 +67,6 @@ class TurboRacerGame
                  White = "\x1b[37m", Bold = "\x1b[1m", Gray = "\x1b[90m", Magenta = "\x1b[35m";
 
     const string ScoreFile = "highscores.txt";
-
     enum State { Menu, Settings, Playing, GameOver, Database }
     State currentState = State.Menu;
 
@@ -86,6 +79,9 @@ class TurboRacerGame
     string difficultyName = "Easy";
     int healthLimit = 5;
     int maxSpawnCount = 1;
+    int repairInterval = 200; // Default Easy
+    int lastRepairScore = 0;   // Track when the last kit spawned
+
     bool isRunning = true;
     int roadOffset = 0;
 
@@ -99,6 +95,11 @@ class TurboRacerGame
         new string[] { "H---H", "[ T ]", "H---H" },
         new string[] { "-=X=-", " |V| ", "-=X=-" }
     };
+
+    void SoundMove() => Console.Beep(450, 15);
+    void SoundCrash() => Console.Beep(180, 100);
+    void SoundRepair() => Console.Beep(900, 60);
+    void SoundGameOver() { Console.Beep(300, 200); Console.Beep(200, 200); Console.Beep(150, 400); }
 
     public void Start()
     {
@@ -121,12 +122,7 @@ class TurboRacerGame
 
     void SaveScoreToFile(string name, int score)
     {
-        try
-        {
-            File.AppendAllText(ScoreFile, $"{name}|{score}" + Environment.NewLine);
-            scoreHistory.Add(new ScoreEntry { Name = name, Score = score });
-        }
-        catch { }
+        try { File.AppendAllText(ScoreFile, $"{name}|{score}" + Environment.NewLine); scoreHistory.Add(new ScoreEntry { Name = name, Score = score }); } catch { }
     }
 
     void LoadScoresFromFile()
@@ -163,19 +159,15 @@ class TurboRacerGame
         DrawCentered($"{Blue}{Bold}╔══════════════════════════════════════════╗{Reset}");
         DrawCentered($"{Blue}{Bold}║             🏎️  {Yellow}TURBO RACER{Blue}              ║{Reset}");
         DrawCentered($"{Blue}{Bold}╚══════════════════════════════════════════╝{Reset}");
-
         var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
-        if (scoreHistory.Any())
-            DrawCentered($"{Green}{Bold}★ ALL-TIME BEST: {best.Name} ({best.Score}) ★{Reset}");
-
+        if (scoreHistory.Any()) DrawCentered($"{Green}{Bold}★ ALL-TIME BEST: {best.Name} ({best.Score}) ★{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{White}[1] {Green}START MISSION{Reset}");
         DrawCentered($"{White}[2] {Cyan}DIFFICULTY{Reset}");
         DrawCentered($"{White}[3] {Yellow}HALL OF FAME (TOP 5){Reset}");
         DrawCentered($"{White}[4] {Red}TERMINATE{Reset}");
-
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) { LoginAndStart(); }
+        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) LoginAndStart();
         else if (key == ConsoleKey.D2 || key == ConsoleKey.NumPad2) currentState = State.Settings;
         else if (key == ConsoleKey.D3 || key == ConsoleKey.NumPad3) currentState = State.Database;
         else if (key == ConsoleKey.D4 || key == ConsoleKey.NumPad4) isRunning = false;
@@ -191,7 +183,6 @@ class TurboRacerGame
         string name = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(name)) name = "Unknown";
         Console.CursorVisible = false;
-
         ResetGame();
         player.Name = name;
         currentState = State.Playing;
@@ -202,7 +193,6 @@ class TurboRacerGame
         Console.Clear();
         Console.WriteLine("\n\n");
         DrawCentered($"{Yellow}═══ 🏆 GLOBAL HALL OF FAME 🏆 ═══{Reset}");
-        Console.WriteLine("\n");
         var top5 = scoreHistory.OrderByDescending(x => x.Score).Take(5).ToList();
         if (!top5.Any()) DrawCentered($"{Gray}No driver data available yet.{Reset}");
         else
@@ -222,39 +212,32 @@ class TurboRacerGame
         DrawCentered($"{Bold}{White}─── {Cyan}SELECT YOUR INTENSITY{White} ───{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{Green}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Green}│ [1] EASY MODE (5 HP)                     │{Reset}");
+        DrawCentered($"{Green}│ [1] EASY MODE  (Kit: 200 pts / 5 HP)     │{Reset}");
         DrawCentered($"{Green}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Yellow}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Yellow}│ [2] HARD MODE (3 HP)                     │{Reset}");
+        DrawCentered($"{Yellow}│ [2] HARD MODE  (Kit: 300 pts / 3 HP)     │{Reset}");
         DrawCentered($"{Yellow}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Red}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Red}│ [3] EXTREME MODE (20ms / 2 HP)           │{Reset}");
+        DrawCentered($"{Red}│ [3] EXTREME MODE (Kit: 400 pts / 2 HP)   │{Reset}");
         DrawCentered($"{Red}└──────────────────────────────────────────┘{Reset}");
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; currentState = State.Menu; }
-        if (key == ConsoleKey.D2) { gameSpeed = 25; difficultyName = "Hard"; healthLimit = 3; maxSpawnCount = 2; currentState = State.Menu; }
-        if (key == ConsoleKey.D3) { gameSpeed = 20; difficultyName = "Extreme"; healthLimit = 2; maxSpawnCount = 3; currentState = State.Menu; }
+        if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; repairInterval = 200; currentState = State.Menu; }
+        if (key == ConsoleKey.D2) { gameSpeed = 25; difficultyName = "Hard"; healthLimit = 3; maxSpawnCount = 2; repairInterval = 300; currentState = State.Menu; }
+        if (key == ConsoleKey.D3) { gameSpeed = 20; difficultyName = "Extreme"; healthLimit = 2; maxSpawnCount = 3; repairInterval = 400; currentState = State.Menu; }
         if (key == ConsoleKey.Escape) currentState = State.Menu;
     }
 
-    void ResetGame()
-    {
-        player = new Player();
-        player.Lives = healthLimit; // Ensure lives are correctly reset to limit
-        player.CarColor = brightColors[rng.Next(brightColors.Length)];
-        player.Sprite = carModels[rng.Next(carModels.Length)];
-        entities.Clear();
-    }
+    void ResetGame() { player = new Player(); player.Lives = healthLimit; player.CarColor = brightColors[rng.Next(brightColors.Length)]; player.Sprite = carModels[rng.Next(carModels.Length)]; entities.Clear(); lastRepairScore = 0; }
 
     void UpdateGame()
     {
         if (Console.KeyAvailable)
         {
             var key = Console.ReadKey(true).Key;
-            if (key == ConsoleKey.LeftArrow) player.MoveLeft();
-            if (key == ConsoleKey.RightArrow) player.MoveRight();
+            if (key == ConsoleKey.LeftArrow) { player.MoveLeft(); SoundMove(); }
+            if (key == ConsoleKey.RightArrow) { player.MoveRight(); SoundMove(); }
             if (key == ConsoleKey.Escape) currentState = State.Menu;
         }
 
@@ -266,31 +249,43 @@ class TurboRacerGame
             {
                 if (entities[i] is Obstacle)
                 {
-                    player.Lives -= 1; // Explicit health decrease
-                    if (player.Lives <= 0)
-                    {
-                        player.Lives = 0; // Prevent negative display
-                        SaveScoreToFile(player.Name, player.Score);
-                        currentState = State.GameOver;
-                        return;
-                    }
+                    player.Lives -= 1; SoundCrash();
+                    if (player.Lives <= 0) { player.Lives = 0; SaveScoreToFile(player.Name, player.Score); SoundGameOver(); currentState = State.GameOver; return; }
                 }
-                else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) player.Lives++; }
+                else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) { player.Lives++; SoundRepair(); } }
                 entities.RemoveAt(i);
             }
             else if (entities[i].Y > RoadHeight + 2) entities.RemoveAt(i);
+        }
+
+        // --- NEW REPAIR SPAWN LOGIC ---
+        bool spawnRepairNow = false;
+        if (player.Score >= lastRepairScore + repairInterval)
+        {
+            spawnRepairNow = true;
+            lastRepairScore = player.Score;
         }
 
         if (!entities.Any(e => e.Y < 5) && rng.Next(0, 10) > 5)
         {
             int spawns = rng.Next(1, maxSpawnCount + 1);
             List<int> used = new List<int>();
+
+            // If a repair is due, make sure one of the spawns is a Repair Kit
             for (int i = 0; i < spawns; i++)
             {
                 int posIdx = rng.Next(spawnPositions.Length);
                 if (!used.Contains(posIdx))
                 {
-                    entities.Add(new Obstacle(spawnPositions[posIdx], 0));
+                    if (spawnRepairNow)
+                    {
+                        entities.Add(new RepairKit(spawnPositions[posIdx], 0));
+                        spawnRepairNow = false; // Kit spawned
+                    }
+                    else
+                    {
+                        entities.Add(new Obstacle(spawnPositions[posIdx], 0));
+                    }
                     used.Add(posIdx);
                 }
             }
@@ -307,21 +302,41 @@ class TurboRacerGame
         string padding = new string(' ', Math.Max(0, (Console.WindowWidth / 2) - 55));
         canvas.Append("\n" + padding + $"{Cyan}═══ TURBO DRIVE XL ═══{Reset}\n");
 
-        string heartBar = player.GetHearts(); // Capture current state
+        string heartBar = player.GetHearts();
 
         for (int y = 0; y < RoadHeight; y++)
         {
             canvas.Append(padding + $"{Blue}║{Reset}");
             for (int x = RoadLeft; x <= RoadRight; x++)
             {
+                // 1. Draw Player
                 if (y >= player.Y - 1 && y <= player.Y + 1 && x >= player.X - 2 && x <= player.X + 2)
                 {
-                    canvas.Append($"{player.CarColor}{player.Sprite[y - (player.Y - 1)][x - (player.X - 2)]}{Reset}");
+                    int spriteY = y - (player.Y - 1);
+                    int spriteX = x - (player.X - 2);
+                    canvas.Append($"{player.CarColor}{player.Sprite[spriteY][spriteX]}{Reset}");
                 }
                 else
                 {
+                    // 2. Draw Entities (Obstacles/Repair Kits)
                     var ent = entities.FirstOrDefault(e => y >= e.Y - 1 && y <= e.Y + 1 && x >= e.X - 2 && x <= e.X + 2);
-                    if (ent != null) canvas.Append($"{ent.Color}{ent.Sprite[y - (ent.Y - 1)][x - (ent.X - 2)]}{Reset}");
+
+                    if (ent != null)
+                    {
+                        int spriteY = y - (ent.Y - 1);
+                        int spriteX = x - (ent.X - 2);
+
+                        // SAFETY CHECK: Ensure we are within the 3x5 sprite bounds
+                        if (spriteY >= 0 && spriteY < ent.Sprite.Length && spriteX >= 0 && spriteX < ent.Sprite[spriteY].Length)
+                        {
+                            canvas.Append($"{ent.Color}{ent.Sprite[spriteY][spriteX]}{Reset}");
+                        }
+                        else
+                        {
+                            canvas.Append(" ");
+                        }
+                    }
+                    // 3. Draw Road Features
                     else if (x == RoadLeft || x == RoadRight) canvas.Append($"{Gray}█{Reset}");
                     else if ((x == 20 || x == 35 || x == 50) && (y + roadOffset) % 4 == 0) canvas.Append($"{White}¦{Reset}");
                     else canvas.Append(" ");
@@ -330,7 +345,7 @@ class TurboRacerGame
             canvas.Append($"{Blue}║{Reset}     ");
             if (y == 2) canvas.Append($"{Cyan}DRIVER: {player.Name}{Reset}");
             if (y == 3) canvas.Append($"{Yellow}SCORE: {player.Score:D6}{Reset}");
-            if (y == 4) canvas.Append($"{Red}LIVES: {heartBar,-7}{Reset}"); // Static padding for hearts
+            if (y == 4) canvas.Append($"{Red}LIVES: {heartBar,-7}{Reset}");
             canvas.Append("\n");
         }
         canvas.Append(padding + $"{Blue}╚" + new string('═', RoadRight - RoadLeft + 1) + "╝{Reset}\n");
@@ -349,10 +364,8 @@ class TurboRacerGame
         DrawCentered($"{White}--- POST-CRASH DIAGNOSTIC ---{Reset}");
         DrawCentered($"{Gray}DRIVER:         {Cyan}{player.Name}{Reset}");
         DrawCentered($"{Gray}FINAL DISTANCE: {Yellow}{player.Score} Units{Reset}");
-
         var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
         if (player.Score >= best.Score) DrawCentered($"{Green}{Bold}!!! NEW HALL OF FAME RECORD !!!{Reset}");
-
         Console.WriteLine("\n" + Red + "VEHICLE STATUS: DESTROYED" + Reset);
         Console.WriteLine("\n\n" + Green + "PRESS ANY KEY TO RETURN TO HQ" + Reset);
         Console.ReadKey(true);
