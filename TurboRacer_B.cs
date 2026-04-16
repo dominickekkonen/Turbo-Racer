@@ -29,22 +29,40 @@ class MusicPlayer
 
     public static void PlayDeftones()
     {
-        // Frequencies for the "Be Quiet and Drive" opening chords
-        // Using slightly higher registers for the melodic "wash" sound
-        const int GSharp3 = 208, ASharp3 = 233, C4 = 261, DSharp4 = 311, F4 = 349;
+        // Frequency Definitions
+        const int B2 = 123, CSharp3 = 139, DSharp3 = 156, E3 = 165, FSharp3 = 185, GSharp3 = 208;
+        const int ASharp3 = 233, B3 = 247, CSharp4 = 277, DSharp4 = 311, E4 = 330, FSharp4 = 370;
+        const int Rest = 0;
 
         int[,] songData = {
-        // Main Chugging Riff (The "Wall of Sound")
-        { GSharp3, 300 }, { GSharp3, 300 }, { ASharp3, 300 }, { ASharp3, 300 },
-        { C4, 300 }, { C4, 300 }, { C4, 600 },
+        // --- INTRO / VERSE (The Ambient Pulse) ---
+        // Bass Note | Melodic Echo 1 | Melodic Echo 2
+        { B2, 800 }, { FSharp3, 200 }, { DSharp3, 200 }, { FSharp3, 200 },
+        { B2, 600 }, { FSharp3, 200 }, { GSharp3, 400 }, { Rest, 100 },
+
+        { E3, 800 }, { B3, 200 }, { GSharp3, 200 }, { B3, 200 },
+        { E3, 600 }, { B3, 200 }, { FSharp3, 400 }, { Rest, 100 },
+
+        // --- PRE-CHORUS (The "Floating" buildup) ---
+        { GSharp3, 600 }, { FSharp3, 600 }, { E3, 800 }, { Rest, 200 },
+        { GSharp3, 600 }, { ASharp3, 600 }, { B3, 800 }, { CSharp4, 400 },
+
+        // --- CHORUS (Chino's Soaring Melody) ---
+        // "Tonight... I feel... like more..."
+        { B3, 1000 }, { CSharp4, 400 }, { DSharp4, 1200 }, { Rest, 100 },
+        { DSharp4, 200 }, { E4, 800 }, { DSharp4, 400 }, { B3, 1200 },
         
-        // The Melodic Lead (The "Far Away" part)
-        { DSharp4, 400 }, { F4, 400 }, { DSharp4, 400 }, { C4, 400 },
-        { ASharp3, 400 }, { GSharp3, 800 },
-        
-        // Bridge Tension
-        { C4, 200 }, { C4, 200 }, { Rest, 100 }, { C4, 200 },
-        { ASharp3, 200 }, { ASharp3, 200 }, { Rest, 100 }, { ASharp3, 200 }
+        // The High Ambient Lead (The "Sparkle" in the song)
+        { FSharp4, 600 }, { E4, 300 }, { DSharp4, 300 }, { CSharp4, 600 },
+        { B3, 1000 }, { Rest, 300 },
+
+        // --- THE "UNDERWATER" BRIDGE ---
+        // Very slow, deep frequencies
+        { B2, 1200 }, { Rest, 100 }, { CSharp3, 1200 }, { Rest, 100 },
+        { DSharp3, 1800 }, { Rest, 400 },
+
+        // --- FINAL OUTRO ECHO ---
+        { B2, 2000 }
     };
 
         PlayLoop(songData);
