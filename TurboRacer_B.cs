@@ -19,20 +19,24 @@ class Program
     const string White = "\x1b[37m";
     const string Bold = "\x1b[1m";
 
+    // Game Settings
     static int gameSpeed = 100;
     static string difficultyName = "Easy";
     static List<int> scoreHistory = new List<int>();
     
+    // Player Stats
     static int playerX = 15;
     static int score = 0;
+    static int lives = 3; // NEW: Health System
     static bool isRunning = true;
+    
     static List<int[]> obstacles = new List<int[]>();
     static Random rng = new Random();
     static int roadOffset = 0;
 
     static void Main()
     {
-        Console.OutputEncoding = Encoding.UTF8; // Ensures box characters look right
+        Console.OutputEncoding = Encoding.UTF8;
         try { Console.CursorVisible = false; } catch { }
 
         while (isRunning)
@@ -56,14 +60,11 @@ class Program
         Console.WriteLine($"{Blue}{Bold}      ╚══════════════════════════════╝{Reset}");
         
         if (scoreHistory.Count > 0)
-        {
             Console.WriteLine($"\n          {Green}BEST RECORD: {scoreHistory.Max()}{Reset}");
-        }
 
         Console.WriteLine($"\n         {White}[1] {Green}START GAME{Reset}");
         Console.WriteLine($"         {White}[2] {Cyan}SETTINGS{Reset}");
         Console.WriteLine($"         {White}[3] {Red}EXIT{Reset}");
-        Console.WriteLine($"\n      {White}Current Mode: {Yellow}{difficultyName}{Reset}");
         
         var key = Console.ReadKey(true).Key;
         if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) { ResetGame(); currentState = State.Playing; }
@@ -75,9 +76,8 @@ class Program
     {
         Console.Clear();
         Console.WriteLine($"\n\n      {Cyan}─── {Bold}GAME SETTINGS{Reset}{Cyan} ───{Reset}");
-        Console.WriteLine($"\n      Active Difficulty: {Yellow}{difficultyName}{Reset}");
-        Console.WriteLine($"\n      {White}[1] {Green}EASY {White}(Cruising speed){Reset}");
-        Console.WriteLine($"      {White}[2] {Red}HARD {White}(Full throttle!){Reset}");
+        Console.WriteLine($"\n      [1] {Green}EASY {White}(100ms speed){Reset}");
+        Console.WriteLine($"      [2] {Red}HARD {White}(60ms speed){Reset}");
         Console.WriteLine($"\n      {Cyan}[B] BACK TO MENU{Reset}");
 
         var key = Console.ReadKey(true).Key;
@@ -89,6 +89,7 @@ class Program
     static void ResetGame()
     {
         score = 0;
+        lives = 3; // Reset lives
         playerX = 15;
         obstacles.Clear();
     }
@@ -108,12 +109,21 @@ class Program
         for (int i = obstacles.Count - 1; i >= 0; i--)
         {
             obstacles[i][1]++;
+            
+            // Collision Detection with Health Logic
             if (obstacles[i][1] == 14 && Math.Abs(obstacles[i][0] - playerX) <= 1)
             {
-                scoreHistory.Add(score);
-                currentState = State.GameOver;
+                lives--; // Lose a life
+                obstacles.RemoveAt(i); // Remove the obstacle we hit
+                
+                if (lives <= 0)
+                {
+                    scoreHistory.Add(score);
+                    currentState = State.GameOver;
+                    return;
+                }
             }
-            if (obstacles[i][1] > 16) obstacles.RemoveAt(i);
+            else if (obstacles[i][1] > 16) obstacles.RemoveAt(i);
         }
 
         if (rng.Next(0, 10) > 7) obstacles.Add(new int[] { rng.Next(7, 24), 0 });
@@ -127,8 +137,9 @@ class Program
     {
         StringBuilder canvas = new StringBuilder();
         
-        // Header in Color
-        canvas.Append($"{Cyan}{Bold}── {difficultyName} MODE {Reset} {White}SCORE: {Yellow}{score.ToString("D5")} {Cyan}──{Reset}\n");
+        // Header with Health Display (Hearts)
+        string heartDisplay = new string('♥', lives);
+        canvas.Append($"{Cyan}{Bold}── {difficultyName} ── {Red}{heartDisplay} {Reset} {White}SCORE: {Yellow}{score.ToString("D5")} {Cyan}──{Reset}\n");
 
         for (int y = 0; y < h; y++)
         {
@@ -155,9 +166,9 @@ class Program
     static void ShowGameOver()
     {
         Console.Clear();
-        Console.WriteLine($"\n\n      {Red}{Bold}💥 KABOOM! 💥{Reset}");
+        Console.WriteLine($"\n\n      {Red}{Bold}💥 GAME OVER 💥{Reset}");
         Console.WriteLine($"{White}      ────────────────────────────{Reset}");
-        Console.WriteLine($"      {White}THIS RUN: {Yellow}{score}{Reset}");
+        Console.WriteLine($"      {White}FINAL SCORE: {Yellow}{score}{Reset}");
         
         Console.WriteLine($"\n      {Cyan}--- RECENT ATTEMPTS ---{Reset}");
         var recentScores = scoreHistory.AsEnumerable().Reverse().Take(3);
