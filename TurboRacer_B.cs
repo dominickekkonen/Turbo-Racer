@@ -6,6 +6,66 @@ using System.Linq;
 using System.IO;
 using System.Text.RegularExpressions;
 
+// --- MUSIC ENGINE ---
+class MusicPlayer
+{
+    const int Rest = 0;
+    // Helmet - Better Notes
+    const int E3 = 164, F3 = 174, G3 = 196, A3 = 220, B3 = 246;
+    // Deftones - My Own Summer Notes
+    const int CSharp3 = 139, D3 = 147, GSharp2 = 104, G2 = 98;
+
+    public static void PlayHelmetBetter()
+    {
+        int[,] songData = {
+            { E3, 200 }, { E3, 200 }, { Rest, 100 }, { E3, 200 },
+            { F3, 200 }, { F3, 200 }, { Rest, 100 }, { E3, 200 },
+            { G3, 300 }, { F3, 200 }, { E3, 400 }, { Rest, 200 },
+            { E3, 150 }, { E3, 150 }, { A3, 150 }, { G3, 150 },
+            { E3, 150 }, { E3, 150 }, { A3, 150 }, { G3, 150 }
+        };
+        PlayLoop(songData);
+    }
+
+    public static void PlayDeftones()
+    {
+        // Frequencies for the "Be Quiet and Drive" opening chords
+        // Using slightly higher registers for the melodic "wash" sound
+        const int GSharp3 = 208, ASharp3 = 233, C4 = 261, DSharp4 = 311, F4 = 349;
+
+        int[,] songData = {
+        // Main Chugging Riff (The "Wall of Sound")
+        { GSharp3, 300 }, { GSharp3, 300 }, { ASharp3, 300 }, { ASharp3, 300 },
+        { C4, 300 }, { C4, 300 }, { C4, 600 },
+        
+        // The Melodic Lead (The "Far Away" part)
+        { DSharp4, 400 }, { F4, 400 }, { DSharp4, 400 }, { C4, 400 },
+        { ASharp3, 400 }, { GSharp3, 800 },
+        
+        // Bridge Tension
+        { C4, 200 }, { C4, 200 }, { Rest, 100 }, { C4, 200 },
+        { ASharp3, 200 }, { ASharp3, 200 }, { Rest, 100 }, { ASharp3, 200 }
+    };
+
+        PlayLoop(songData);
+    }
+    private static void PlayLoop(int[,] songData)
+    {
+        try
+        {
+            while (true)
+            {
+                for (int i = 0; i < songData.GetLength(0); i++)
+                {
+                    if (songData[i, 0] == Rest) Thread.Sleep(songData[i, 1]);
+                    else Console.Beep(songData[i, 0], songData[i, 1]);
+                }
+            }
+        }
+        catch (ThreadInterruptedException) { }
+    }
+}
+
 // --- DATA MODELS ---
 
 class Player
@@ -63,7 +123,7 @@ class TrafficSign : Entity
         "|]=======================================================[|",
         "||                                                       ||"
     };
-    public override string Color => "\x1b[90m"; // Steel Gray
+    public override string Color => "\x1b[90m";
     public TrafficSign(int x, int y) : base(x, y) { }
     public override bool CheckCollision(Player p) => false;
 }
@@ -84,6 +144,7 @@ class TurboRacerGame
     List<Entity> entities = new List<Entity>();
     List<ScoreEntry> scoreHistory = new List<ScoreEntry>();
     Random rng = new Random();
+    Thread musicThread;
 
     int gameSpeed = 45;
     string difficultyName = "Easy";
@@ -162,23 +223,53 @@ class TurboRacerGame
 
     void DrawMenu()
     {
+        if (musicThread == null || !musicThread.IsAlive)
+        {
+            musicThread = new Thread(MusicPlayer.PlayHelmetBetter) { IsBackground = true };
+            musicThread.Start();
+        }
+
         Console.Clear();
-        Console.WriteLine("\n\n\n");
+        Console.WriteLine("\n\n");
         DrawCentered($"{Blue}{Bold}╔══════════════════════════════════════════╗{Reset}");
         DrawCentered($"{Blue}{Bold}║             🏎️  {Yellow}TURBO RACER{Blue}              ║{Reset}");
         DrawCentered($"{Blue}{Bold}╚══════════════════════════════════════════╝{Reset}");
+
         var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
         if (scoreHistory.Any()) DrawCentered($"{Green}{Bold}★ ALL-TIME BEST: {best.Name} ({best.Score}) ★{Reset}");
+
         Console.WriteLine("\n");
-        DrawCentered($"{White}[1] {Green}START MISSION{Reset}");
-        DrawCentered($"{White}[2] {Cyan}DIFFICULTY{Reset}");
-        DrawCentered($"{White}[3] {Yellow}HALL OF FAME (TOP 5){Reset}");
-        DrawCentered($"{White}[4] {Red}TERMINATE{Reset}");
+
+        // Square Box Style Menu
+        DrawCentered($"{White}╔══════════════════╗  ╔══════════════════╗{Reset}");
+        DrawCentered($"{White}║ [1] {Green}START MISSION{White} ║  ║ [2] {Cyan}DIFFICULTY   {White} ║{Reset}");
+        DrawCentered($"{White}╚══════════════════╝  ╚══════════════════╝{Reset}");
+        Console.WriteLine();
+        DrawCentered($"{White}╔══════════════════╗  ╔══════════════════╗{Reset}");
+        DrawCentered($"{White}║ [3] {Yellow}HALL OF FAME {White} ║  ║ [4] {Red}TERMINATE    {White} ║{Reset}");
+        DrawCentered($"{White}╚══════════════════╝  ╚══════════════════╝{Reset}");
+
+        Console.WriteLine("\n");
+
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) LoginAndStart();
+        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1)
+        {
+            StopMusic();
+            LoginAndStart();
+        }
         else if (key == ConsoleKey.D2 || key == ConsoleKey.NumPad2) currentState = State.Settings;
         else if (key == ConsoleKey.D3 || key == ConsoleKey.NumPad3) currentState = State.Database;
         else if (key == ConsoleKey.D4 || key == ConsoleKey.NumPad4) isRunning = false;
+    }
+
+    void StopMusic()
+    {
+        if (musicThread != null && musicThread.IsAlive)
+        {
+            musicThread.Interrupt();
+            musicThread.Join(100); // Wait briefly for thread to close
+            musicThread = null;
+        }
     }
 
     void LoginAndStart()
@@ -193,6 +284,11 @@ class TurboRacerGame
         Console.CursorVisible = false;
         ResetGame();
         player.Name = name;
+
+        // START DEFTONES MUSIC FOR DRIVING
+        musicThread = new Thread(MusicPlayer.PlayDeftones) { IsBackground = true };
+        musicThread.Start();
+
         currentState = State.Playing;
     }
 
@@ -219,22 +315,50 @@ class TurboRacerGame
         Console.WriteLine("\n\n");
         DrawCentered($"{Bold}{White}─── {Cyan}SELECT YOUR INTENSITY{White} ───{Reset}");
         Console.WriteLine("\n");
-        DrawCentered($"{Green}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Green}│ [1] EASY MODE (HP: 5 / Kit: 200)         │{Reset}");
-        DrawCentered($"{Green}└──────────────────────────────────────────┘{Reset}");
+
+        // EASY MODE - Half-Drawn Bar Style
+        DrawCentered($"{Green}╔══════════════════════════════════════════╗{Reset}");
+        DrawCentered($"{Green}║ [1] EASY MODE                            ║{Reset}");
+        DrawCentered($"{Green}╠══════════════════════════════════════════╣{Reset}");
+        DrawCentered($"{Green}║     (HP: 5 / Repair Kit Interval: 200)   ║{Reset}");
+        DrawCentered($"{Green}╚══════════════════════════════════════════╝{Reset}");
         Console.WriteLine();
-        DrawCentered($"{Yellow}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Yellow}│ [2] HARD MODE (HP: 3 / Kit: 300)         │{Reset}");
-        DrawCentered($"{Yellow}└──────────────────────────────────────────┘{Reset}");
+
+        // HARD MODE - Half-Drawn Bar Style
+        DrawCentered($"{Yellow}╔══════════════════════════════════════════╗{Reset}");
+        DrawCentered($"{Yellow}║ [2] HARD MODE                            ║{Reset}");
+        DrawCentered($"{Yellow}╠══════════════════════════════════════════╣{Reset}");
+        DrawCentered($"{Yellow}║     (HP: 3 / Repair Kit Interval: 300)   ║{Reset}");
+        DrawCentered($"{Yellow}╚══════════════════════════════════════════╝{Reset}");
         Console.WriteLine();
-        DrawCentered($"{Red}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Red}│ [3] EXTREME MODE (HP: 2 / Kit: 400)      │{Reset}");
-        DrawCentered($"{Red}└──────────────────────────────────────────┘{Reset}");
+
+        // EXTREME MODE - Half-Drawn Bar Style
+        DrawCentered($"{Red}╔══════════════════════════════════════════╗{Reset}");
+        DrawCentered($"{Red}║ [3] EXTREME MODE                         ║{Reset}");
+        DrawCentered($"{Red}╠══════════════════════════════════════════╣{Reset}");
+        DrawCentered($"{Red}║     (HP: 2 / Repair Kit Interval: 400)   ║{Reset}");
+        DrawCentered($"{Red}╚══════════════════════════════════════════╝{Reset}");
+
+        Console.WriteLine("\n" + Gray);
+        DrawCentered("Press [ESC] to return to the main menu");
+
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; repairInterval = 200; currentState = State.Menu; }
-        if (key == ConsoleKey.D2) { gameSpeed = 25; difficultyName = "Hard"; healthLimit = 3; maxSpawnCount = 2; repairInterval = 300; currentState = State.Menu; }
-        if (key == ConsoleKey.D3) { gameSpeed = 20; difficultyName = "Extreme"; healthLimit = 2; maxSpawnCount = 3; repairInterval = 400; currentState = State.Menu; }
-        if (key == ConsoleKey.Escape) currentState = State.Menu;
+        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1)
+        {
+            gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5;
+            maxSpawnCount = 1; repairInterval = 200; currentState = State.Menu;
+        }
+        else if (key == ConsoleKey.D2 || key == ConsoleKey.NumPad2)
+        {
+            gameSpeed = 25; difficultyName = "Hard"; healthLimit = 3;
+            maxSpawnCount = 2; repairInterval = 300; currentState = State.Menu;
+        }
+        else if (key == ConsoleKey.D3 || key == ConsoleKey.NumPad3)
+        {
+            gameSpeed = 20; difficultyName = "Extreme"; healthLimit = 2;
+            maxSpawnCount = 3; repairInterval = 400; currentState = State.Menu;
+        }
+        else if (key == ConsoleKey.Escape) currentState = State.Menu;
     }
 
     void ResetGame() { player = new Player(); player.Lives = healthLimit; player.CarColor = brightColors[rng.Next(brightColors.Length)]; player.Sprite = carModels[rng.Next(carModels.Length)]; entities.Clear(); lastRepairScore = 0; lastSignScore = 0; }
@@ -246,7 +370,7 @@ class TurboRacerGame
             var key = Console.ReadKey(true).Key;
             if (key == ConsoleKey.LeftArrow) { player.MoveLeft(); SoundMove(); }
             if (key == ConsoleKey.RightArrow) { player.MoveRight(); SoundMove(); }
-            if (key == ConsoleKey.Escape) currentState = State.Menu;
+            if (key == ConsoleKey.Escape) { StopMusic(); currentState = State.Menu; }
         }
 
         roadOffset = (roadOffset + 1) % 4;
@@ -258,7 +382,15 @@ class TurboRacerGame
                 if (entities[i] is Obstacle)
                 {
                     player.Lives -= 1; SoundCrash();
-                    if (player.Lives <= 0) { player.Lives = 0; SaveScoreToFile(player.Name, player.Score); SoundGameOver(); currentState = State.GameOver; return; }
+                    if (player.Lives <= 0)
+                    {
+                        player.Lives = 0;
+                        SaveScoreToFile(player.Name, player.Score);
+                        SoundGameOver();
+                        StopMusic();
+                        currentState = State.GameOver;
+                        return;
+                    }
                 }
                 else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) { player.Lives++; SoundRepair(); } }
                 entities.RemoveAt(i);
@@ -316,6 +448,7 @@ class TurboRacerGame
                     {
                         int sY = y - (ent.Y - (ent.Sprite.Length / 2));
                         int sX = x - (ent.X - (ent.Sprite[0].Length / 2));
+
                         if (sY >= 0 && sY < ent.Sprite.Length && sX >= 0 && sX < ent.Sprite[sY].Length)
                         {
                             string c = ent.Sprite[sY][sX].ToString();
@@ -329,7 +462,7 @@ class TurboRacerGame
                     else canvas.Append(" ");
                 }
             }
-            canvas.Append($"{Blue}║{Reset}     ");
+            canvas.Append($"{Blue}║{Reset}      ");
             if (y == 2) canvas.Append($"{Cyan}DRIVER: {player.Name}{Reset}");
             if (y == 3) canvas.Append($"{Yellow}SCORE: {player.Score:D6}{Reset}");
             if (y == 4) canvas.Append($"{Red}LIVES: {heartBar,-7}{Reset}");
@@ -345,14 +478,14 @@ class TurboRacerGame
         Console.Clear();
         Console.WriteLine("\n\n\n");
         DrawCentered($"{Red}{Bold}╔══════════════════════════════════════════╗{Reset}");
-        DrawCentered($"{Red}{Bold}║          CRITICAL SYSTEM FAILURE         ║{Reset}");
+        DrawCentered($"{Red}{Bold}║           CRITICAL SYSTEM FAILURE          ║{Reset}");
         DrawCentered($"{Red}{Bold}╚══════════════════════════════════════════╝{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{White}--- POST-CRASH DIAGNOSTIC ---{Reset}");
         DrawCentered($"{Gray}DRIVER:         {Cyan}{player.Name}{Reset}");
         DrawCentered($"{Gray}FINAL DISTANCE: {Yellow}{player.Score} Units{Reset}");
         var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
-        if (player.Score >= best.Score) DrawCentered($"{Green}{Bold}!!! NEW HALL OF FAME RECORD !!!{Reset}");
+        if (player.Score >= (best.Name != null ? best.Score : 0)) DrawCentered($"{Green}{Bold}!!! NEW HALL OF FAME RECORD !!!{Reset}");
         Console.WriteLine("\n" + Red + "VEHICLE STATUS: DESTROYED" + Reset);
         Console.WriteLine("\n\n" + Green + "PRESS ANY KEY TO RETURN TO HQ" + Reset);
         Console.ReadKey(true);
