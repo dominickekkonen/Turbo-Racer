@@ -16,16 +16,21 @@ class Player
     public string Name { get; set; } = "Driver";
     public int X => validPositions[positionIndex];
     public int Y { get; } = 18;
-    public int Lives { get; set; } = 3;
+    public int Lives { get; set; } = 3; // This will be set by difficulty
     public int Score { get; set; } = 0;
 
-    // Customization for each attempt
     public string CarColor { get; set; } = "\x1b[36m";
     public string[] Sprite { get; set; } = { "o---o", "| A |", "o---o" };
 
     public void MoveLeft() { if (positionIndex > 0) positionIndex--; }
     public void MoveRight() { if (positionIndex < validPositions.Length - 1) positionIndex++; }
-    public string GetHearts() => new string('♥', Math.Max(0, Lives));
+
+    // Explicitly calculate hearts based on current lives
+    public string GetHearts()
+    {
+        int current = Math.Max(0, Lives);
+        return new string('♥', current);
+    }
 }
 
 struct ScoreEntry
@@ -85,17 +90,14 @@ class TurboRacerGame
     int roadOffset = 0;
 
     const int RoadLeft = 5, RoadRight = 65, RoadHeight = 22;
-    readonly int[] enemyLanes = { 12, 27, 42, 57 };
-
-    // Bright neon colors for the player
+    readonly int[] spawnPositions = { 12, 20, 27, 35, 42, 50, 57 };
     readonly string[] brightColors = { Green, Yellow, Cyan, Magenta, Bold + Blue };
 
-    // Different car models
     readonly string[][] carModels = {
-        new string[] { "o---o", "| A |", "o---o" }, // Original
-        new string[] { "/---\\", "| S |", "\\---/" }, // Sport
-        new string[] { "H---H", "[ T ]", "H---H" }, // Truck Style
-        new string[] { "-=X=-", " |V| ", "-=X=-" }  // Formula Style
+        new string[] { "o---o", "| A |", "o---o" },
+        new string[] { "/---\\", "| S |", "\\---/" },
+        new string[] { "H---H", "[ T ]", "H---H" },
+        new string[] { "-=X=-", " |V| ", "-=X=-" }
     };
 
     public void Start()
@@ -116,8 +118,6 @@ class TurboRacerGame
             }
         }
     }
-
-    // --- SCORE PERSISTENCE ---
 
     void SaveScoreToFile(string name, int score)
     {
@@ -147,8 +147,6 @@ class TurboRacerGame
         }
         catch { }
     }
-
-    // --- UI HELPERS ---
 
     void DrawCentered(string text)
     {
@@ -188,7 +186,7 @@ class TurboRacerGame
         Console.Clear();
         Console.WriteLine("\n\n\n");
         DrawCentered($"{Cyan}ENTER DRIVER IDENTIFICATION:{Reset}");
-        Console.SetCursorPosition(Console.WindowWidth / 2 - 10, Console.CursorTop + 1);
+        Console.SetCursorPosition(Math.Max(0, Console.WindowWidth / 2 - 10), Console.CursorTop + 1);
         Console.CursorVisible = true;
         string name = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(name)) name = "Unknown";
@@ -224,15 +222,15 @@ class TurboRacerGame
         DrawCentered($"{Bold}{White}─── {Cyan}SELECT YOUR INTENSITY{White} ───{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{Green}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Green}│ [1] EASY MODE (Danger: █░░░░░░░░░)       │{Reset}");
+        DrawCentered($"{Green}│ [1] EASY MODE (5 HP)                     │{Reset}");
         DrawCentered($"{Green}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Yellow}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Yellow}│ [2] HARD MODE (Danger: █████░░░░░)       │{Reset}");
+        DrawCentered($"{Yellow}│ [2] HARD MODE (3 HP)                     │{Reset}");
         DrawCentered($"{Yellow}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Red}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Red}│ [3] EXTREME MODE (Danger: ██████████)    │{Reset}");
+        DrawCentered($"{Red}│ [3] EXTREME MODE (20ms / 2 HP)           │{Reset}");
         DrawCentered($"{Red}└──────────────────────────────────────────┘{Reset}");
         var key = Console.ReadKey(true).Key;
         if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; currentState = State.Menu; }
@@ -244,12 +242,9 @@ class TurboRacerGame
     void ResetGame()
     {
         player = new Player();
-        player.Lives = healthLimit;
-
-        // Randomize Appearance for every attempt
+        player.Lives = healthLimit; // Ensure lives are correctly reset to limit
         player.CarColor = brightColors[rng.Next(brightColors.Length)];
         player.Sprite = carModels[rng.Next(carModels.Length)];
-
         entities.Clear();
     }
 
@@ -271,8 +266,14 @@ class TurboRacerGame
             {
                 if (entities[i] is Obstacle)
                 {
-                    player.Lives--;
-                    if (player.Lives <= 0) { SaveScoreToFile(player.Name, player.Score); currentState = State.GameOver; return; }
+                    player.Lives -= 1; // Explicit health decrease
+                    if (player.Lives <= 0)
+                    {
+                        player.Lives = 0; // Prevent negative display
+                        SaveScoreToFile(player.Name, player.Score);
+                        currentState = State.GameOver;
+                        return;
+                    }
                 }
                 else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) player.Lives++; }
                 entities.RemoveAt(i);
@@ -286,8 +287,12 @@ class TurboRacerGame
             List<int> used = new List<int>();
             for (int i = 0; i < spawns; i++)
             {
-                int laneIdx = rng.Next(enemyLanes.Length);
-                if (!used.Contains(laneIdx)) { entities.Add(new Obstacle(enemyLanes[laneIdx], 0)); used.Add(laneIdx); }
+                int posIdx = rng.Next(spawnPositions.Length);
+                if (!used.Contains(posIdx))
+                {
+                    entities.Add(new Obstacle(spawnPositions[posIdx], 0));
+                    used.Add(posIdx);
+                }
             }
         }
 
@@ -301,6 +306,9 @@ class TurboRacerGame
         StringBuilder canvas = new StringBuilder();
         string padding = new string(' ', Math.Max(0, (Console.WindowWidth / 2) - 55));
         canvas.Append("\n" + padding + $"{Cyan}═══ TURBO DRIVE XL ═══{Reset}\n");
+
+        string heartBar = player.GetHearts(); // Capture current state
+
         for (int y = 0; y < RoadHeight; y++)
         {
             canvas.Append(padding + $"{Blue}║{Reset}");
@@ -322,7 +330,7 @@ class TurboRacerGame
             canvas.Append($"{Blue}║{Reset}     ");
             if (y == 2) canvas.Append($"{Cyan}DRIVER: {player.Name}{Reset}");
             if (y == 3) canvas.Append($"{Yellow}SCORE: {player.Score:D6}{Reset}");
-            if (y == 4) canvas.Append($"{Red}LIVES: {player.GetHearts()}{Reset}");
+            if (y == 4) canvas.Append($"{Red}LIVES: {heartBar,-7}{Reset}"); // Static padding for hearts
             canvas.Append("\n");
         }
         canvas.Append(padding + $"{Blue}╚" + new string('═', RoadRight - RoadLeft + 1) + "╝{Reset}\n");
