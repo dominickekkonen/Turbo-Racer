@@ -22,22 +22,36 @@ class Player
     public string GetHearts() => new string('♥', Math.Max(0, Lives));
 }
 
-class Obstacle
+abstract class Entity
 {
     public int X { get; set; }
     public int Y { get; set; }
-    public char Symbol { get; } = '█';
+    public abstract string Symbol { get; } 
+    public abstract string Color { get; }
 
-    public Obstacle(int x, int y) { X = x; Y = y; }
+    public Entity(int x, int y) { X = x; Y = y; }
     public void Update() => Y++;
     public bool CheckCollision(Player p) => Y == p.Y && Math.Abs(X - p.X) <= 1;
+}
+
+class Obstacle : Entity
+{
+    public override string Symbol => "█";
+    public override string Color => "\x1b[31m"; 
+    public Obstacle(int x, int y) : base(x, y) { }
+}
+
+class RepairKit : Entity
+{
+    public override string Symbol => "🔧";
+    public override string Color => "\x1b[32m"; 
+    public RepairKit(int x, int y) : base(x, y) { }
 }
 
 // --- MAIN ENGINE ---
 
 class TurboRacerGame
 {
-    // ANSI Colors for the "Visualized" look
     const string Reset = "\x1b[0m", Red = "\x1b[31m", Green = "\x1b[32m", 
                  Yellow = "\x1b[33m", Blue = "\x1b[34m", Cyan = "\x1b[36m", 
                  White = "\x1b[37m", Bold = "\x1b[1m";
@@ -46,7 +60,7 @@ class TurboRacerGame
     State currentState = State.Menu;
 
     Player player = new Player();
-    List<Obstacle> obstacles = new List<Obstacle>();
+    List<Entity> entities = new List<Entity>();
     List<int> scoreHistory = new List<int>();
     Random rng = new Random();
 
@@ -54,6 +68,7 @@ class TurboRacerGame
     string difficultyName = "Easy";
     bool isRunning = true;
     int roadOffset = 0;
+    int lastRepairScore = 0;
 
     public void Start()
     {
@@ -71,8 +86,6 @@ class TurboRacerGame
             }
         }
     }
-
-    // --- UI DRAWING METHODS ---
 
     void DrawMenu()
     {
@@ -101,39 +114,21 @@ class TurboRacerGame
         Console.Clear();
         Console.WriteLine($"\n\n      {Cyan}─── {Bold}GAME SETTINGS{Reset}{Cyan} ───{Reset}");
         Console.WriteLine($"\n      Active Mode: {Yellow}{difficultyName}{Reset}");
-        Console.WriteLine($"\n      {White}[1] {Green}EASY {White}(Cruising){Reset}");
-        Console.WriteLine($"      {White}[2] {Red}HARD {White}(Full Throttle){Reset}");
+        Console.WriteLine($"\n      {White}[1] {Green}EASY {White}(100ms){Reset}");
+        Console.WriteLine($"      {White}[2] {Red}HARD {White}(60ms){Reset}");
         Console.WriteLine($"\n      {Cyan}[B] BACK TO MENU{Reset}");
 
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) { gameSpeed = 100; difficultyName = "Easy"; }
-        else if (key == ConsoleKey.D2 || key == ConsoleKey.NumPad2) { gameSpeed = 60; difficultyName = "Hard"; }
+        if (key == ConsoleKey.D1) { gameSpeed = 100; difficultyName = "Easy"; }
+        else if (key == ConsoleKey.D2) { gameSpeed = 60; difficultyName = "Hard"; }
         else if (key == ConsoleKey.B) currentState = State.Menu;
     }
-
-    void DrawGameOver()
-    {
-        Console.Clear();
-        Console.WriteLine($"\n\n      {Red}{Bold}💥 KABOOM! 💥{Reset}");
-        Console.WriteLine($"{White}      ────────────────────────────{Reset}");
-        Console.WriteLine($"      {White}THIS RUN: {Yellow}{player.Score}{Reset}");
-        
-        Console.WriteLine($"\n      {Cyan}--- RECENT TRIES ---{Reset}");
-        var recent = scoreHistory.AsEnumerable().Reverse().Take(3);
-        foreach (var s in recent) Console.WriteLine($"      {White}Score: {s}{Reset}");
-
-        Console.WriteLine($"{White}      ────────────────────────────{Reset}");
-        Console.WriteLine($"\n      {Green}Press any key for Menu{Reset}");
-        Console.ReadKey(true);
-        currentState = State.Menu;
-    }
-
-    // --- CORE GAMEPLAY ---
 
     void ResetGame()
     {
         player = new Player();
-        obstacles.Clear();
+        entities.Clear();
+        lastRepairScore = 0;
     }
 
     void UpdateGame()
@@ -147,21 +142,40 @@ class TurboRacerGame
         }
 
         roadOffset = (roadOffset + 1) % 4;
-        for (int i = obstacles.Count - 1; i >= 0; i--)
+
+        for (int i = entities.Count - 1; i >= 0; i--)
         {
-            obstacles[i].Update();
-            if (obstacles[i].CheckCollision(player))
+            entities[i].Update();
+            if (entities[i].CheckCollision(player))
             {
-                player.Lives--;
-                obstacles.RemoveAt(i);
-                if (player.Lives <= 0) { scoreHistory.Add(player.Score); currentState = State.GameOver; }
+                if (entities[i] is Obstacle)
+                {
+                    player.Lives--;
+                    if (player.Lives <= 0) 
+                    { 
+                        scoreHistory.Add(player.Score); 
+                        currentState = State.GameOver; 
+                        return; 
+                    }
+                }
+                else if (entities[i] is RepairKit)
+                {
+                    if (player.Lives < 5) player.Lives++;
+                }
+                entities.RemoveAt(i);
             }
-            else if (obstacles[i].Y > 16) obstacles.RemoveAt(i);
+            else if (entities[i].Y > 16) entities.RemoveAt(i);
         }
 
-        if (rng.Next(0, 10) > 7) obstacles.Add(new Obstacle(rng.Next(7, 24), 0));
-        player.Score += (difficultyName == "Hard" ? 2 : 1);
+        if (rng.Next(0, 10) > 7) entities.Add(new Obstacle(rng.Next(7, 24), 0));
 
+        if (player.Score > 0 && player.Score % 200 == 0 && player.Score != lastRepairScore)
+        {
+            entities.Add(new RepairKit(rng.Next(7, 24), 0));
+            lastRepairScore = player.Score;
+        }
+
+        player.Score += (difficultyName == "Hard" ? 2 : 1);
         DrawFrame();
         Thread.Sleep(gameSpeed);
     }
@@ -175,13 +189,13 @@ class TurboRacerGame
         {
             for (int x = 0; x < 32; x++)
             {
-                var obs = obstacles.FirstOrDefault(o => o.X == x && o.Y == y);
+                var ent = entities.FirstOrDefault(e => e.X == x && e.Y == y);
                 if (x == 5 || x == 25) canvas.Append($"{Blue}║{Reset}");
                 else if (x == 15 && (y + roadOffset) % 4 == 0) canvas.Append($"{White}¦{Reset}");
                 else if (y == player.Y && x == player.X) canvas.Append($"{Cyan}H{Reset}");
                 else if (y == player.Y && (x == player.X - 1)) canvas.Append($"{Cyan}[{Reset}");
                 else if (y == player.Y && (x == player.X + 1)) canvas.Append($"{Cyan}]{Reset}");
-                else if (obs != null) canvas.Append($"{Red}{obs.Symbol}{Reset}");
+                else if (ent != null) canvas.Append($"{ent.Color}{ent.Symbol}{Reset}");
                 else canvas.Append(" ");
             }
             canvas.Append("\n");
@@ -189,9 +203,31 @@ class TurboRacerGame
         try { Console.SetCursorPosition(0, 0); } catch { Console.Clear(); }
         Console.Write(canvas.ToString());
     }
+
+    void DrawGameOver()
+    {
+        Console.Clear();
+        Console.WriteLine($"\n\n      {Red}{Bold}💥 KABOOM! 💥{Reset}");
+        Console.WriteLine($"{White}      ────────────────────────────{Reset}");
+        
+        bool isNewRecord = scoreHistory.Count > 1 && player.Score == scoreHistory.Max();
+        string runText = isNewRecord ? $"{Green}{Bold}NEW RECORD!{Reset}" : "THIS RUN:";
+        
+        Console.WriteLine($"      {White}{runText} {Yellow}{player.Score}{Reset}");
+        
+        Console.WriteLine($"\n      {Cyan}--- RECENT ATTEMPTS ---{Reset}");
+        var recent = scoreHistory.AsEnumerable().Reverse().Take(5);
+        int i = 1;
+        foreach (var s in recent) 
+        {
+            Console.WriteLine($"      {White}Attempt {i++}: {s}{Reset}");
+        }
+
+        Console.WriteLine($"{White}      ────────────────────────────{Reset}");
+        Console.WriteLine($"\n      {Green}Press any key for Menu{Reset}");
+        Console.ReadKey(true);
+        currentState = State.Menu;
+    }
 }
 
-class Program
-{
-    static void Main() => new TurboRacerGame().Start();
-}
+class Program { static void Main() => new TurboRacerGame().Start(); }
