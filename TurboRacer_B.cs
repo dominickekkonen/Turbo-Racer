@@ -13,16 +13,25 @@ class Player
     private readonly int[] validPositions = { 12, 20, 27, 35, 42, 50, 57 };
     private int positionIndex = 3;
 
+    public string Name { get; set; } = "Driver";
     public int X => validPositions[positionIndex];
     public int Y { get; } = 18;
     public int Lives { get; set; } = 3;
     public int Score { get; set; } = 0;
+
+    // Customization for each attempt
     public string CarColor { get; set; } = "\x1b[36m";
+    public string[] Sprite { get; set; } = { "o---o", "| A |", "o---o" };
 
     public void MoveLeft() { if (positionIndex > 0) positionIndex--; }
     public void MoveRight() { if (positionIndex < validPositions.Length - 1) positionIndex++; }
-
     public string GetHearts() => new string('♥', Math.Max(0, Lives));
+}
+
+struct ScoreEntry
+{
+    public string Name;
+    public int Score;
 }
 
 abstract class Entity
@@ -65,20 +74,29 @@ class TurboRacerGame
 
     Player player = new Player();
     List<Entity> entities = new List<Entity>();
-    List<int> scoreHistory = new List<int>();
+    List<ScoreEntry> scoreHistory = new List<ScoreEntry>();
     Random rng = new Random();
 
     int gameSpeed = 45;
     string difficultyName = "Easy";
     int healthLimit = 5;
     int maxSpawnCount = 1;
-
     bool isRunning = true;
     int roadOffset = 0;
 
     const int RoadLeft = 5, RoadRight = 65, RoadHeight = 22;
     readonly int[] enemyLanes = { 12, 27, 42, 57 };
-    readonly string[] playerColors = { Cyan, Green, Yellow, Magenta, White, Bold + Blue };
+
+    // Bright neon colors for the player
+    readonly string[] brightColors = { Green, Yellow, Cyan, Magenta, Bold + Blue };
+
+    // Different car models
+    readonly string[][] carModels = {
+        new string[] { "o---o", "| A |", "o---o" }, // Original
+        new string[] { "/---\\", "| S |", "\\---/" }, // Sport
+        new string[] { "H---H", "[ T ]", "H---H" }, // Truck Style
+        new string[] { "-=X=-", " |V| ", "-=X=-" }  // Formula Style
+    };
 
     public void Start()
     {
@@ -99,23 +117,38 @@ class TurboRacerGame
         }
     }
 
-    void SaveScoreToFile(int score)
+    // --- SCORE PERSISTENCE ---
+
+    void SaveScoreToFile(string name, int score)
     {
-        try { File.AppendAllText(ScoreFile, score.ToString() + Environment.NewLine); scoreHistory.Add(score); } catch { }
+        try
+        {
+            File.AppendAllText(ScoreFile, $"{name}|{score}" + Environment.NewLine);
+            scoreHistory.Add(new ScoreEntry { Name = name, Score = score });
+        }
+        catch { }
     }
 
     void LoadScoresFromFile()
     {
+        scoreHistory.Clear();
         try
         {
             if (File.Exists(ScoreFile))
             {
                 string[] lines = File.ReadAllLines(ScoreFile);
-                foreach (string line in lines) if (int.TryParse(line, out int s)) scoreHistory.Add(s);
+                foreach (string line in lines)
+                {
+                    string[] parts = line.Split('|');
+                    if (parts.Length == 2 && int.TryParse(parts[1], out int s))
+                        scoreHistory.Add(new ScoreEntry { Name = parts[0], Score = s });
+                }
             }
         }
         catch { }
     }
+
+    // --- UI HELPERS ---
 
     void DrawCentered(string text)
     {
@@ -132,17 +165,56 @@ class TurboRacerGame
         DrawCentered($"{Blue}{Bold}╔══════════════════════════════════════════╗{Reset}");
         DrawCentered($"{Blue}{Bold}║             🏎️  {Yellow}TURBO RACER{Blue}              ║{Reset}");
         DrawCentered($"{Blue}{Bold}╚══════════════════════════════════════════╝{Reset}");
-        if (scoreHistory.Any()) DrawCentered($"{Green}{Bold}★ PERSONAL BEST: {scoreHistory.Max()} ★{Reset}");
+
+        var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
+        if (scoreHistory.Any())
+            DrawCentered($"{Green}{Bold}★ ALL-TIME BEST: {best.Name} ({best.Score}) ★{Reset}");
+
         Console.WriteLine("\n");
-        DrawCentered($"{White}[1] {Green}START GAME{Reset}");
+        DrawCentered($"{White}[1] {Green}START MISSION{Reset}");
         DrawCentered($"{White}[2] {Cyan}DIFFICULTY{Reset}");
-        DrawCentered($"{White}[3] {Yellow}RECORDS (DB){Reset}");
-        DrawCentered($"{White}[4] {Red}EXIT{Reset}");
+        DrawCentered($"{White}[3] {Yellow}HALL OF FAME (TOP 5){Reset}");
+        DrawCentered($"{White}[4] {Red}TERMINATE{Reset}");
+
         var key = Console.ReadKey(true).Key;
-        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) { ResetGame(); currentState = State.Playing; }
+        if (key == ConsoleKey.D1 || key == ConsoleKey.NumPad1) { LoginAndStart(); }
         else if (key == ConsoleKey.D2 || key == ConsoleKey.NumPad2) currentState = State.Settings;
         else if (key == ConsoleKey.D3 || key == ConsoleKey.NumPad3) currentState = State.Database;
         else if (key == ConsoleKey.D4 || key == ConsoleKey.NumPad4) isRunning = false;
+    }
+
+    void LoginAndStart()
+    {
+        Console.Clear();
+        Console.WriteLine("\n\n\n");
+        DrawCentered($"{Cyan}ENTER DRIVER IDENTIFICATION:{Reset}");
+        Console.SetCursorPosition(Console.WindowWidth / 2 - 10, Console.CursorTop + 1);
+        Console.CursorVisible = true;
+        string name = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(name)) name = "Unknown";
+        Console.CursorVisible = false;
+
+        ResetGame();
+        player.Name = name;
+        currentState = State.Playing;
+    }
+
+    void DrawDatabase()
+    {
+        Console.Clear();
+        Console.WriteLine("\n\n");
+        DrawCentered($"{Yellow}═══ 🏆 GLOBAL HALL OF FAME 🏆 ═══{Reset}");
+        Console.WriteLine("\n");
+        var top5 = scoreHistory.OrderByDescending(x => x.Score).Take(5).ToList();
+        if (!top5.Any()) DrawCentered($"{Gray}No driver data available yet.{Reset}");
+        else
+        {
+            for (int i = 0; i < top5.Count; i++)
+                DrawCentered($"{(i == 0 ? Yellow : (i == 1 ? White : Gray))}#{i + 1} {top5[i].Name.PadRight(12)} : {top5[i].Score:D6}{Reset}");
+        }
+        Console.WriteLine("\n\n" + Gray + "Press any key to go back" + Reset);
+        Console.ReadKey(true);
+        currentState = State.Menu;
     }
 
     void DrawSettings()
@@ -151,30 +223,17 @@ class TurboRacerGame
         Console.WriteLine("\n\n");
         DrawCentered($"{Bold}{White}─── {Cyan}SELECT YOUR INTENSITY{White} ───{Reset}");
         Console.WriteLine("\n");
-
-        // EASY OPTION
         DrawCentered($"{Green}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Green}│ [1] {Bold}EASY MODE{Reset}{Green}                            │{Reset}");
-        DrawCentered($"{Green}│     DANGER: █░░░░░░░░░  (45ms / 5 HP)    │{Reset}");
+        DrawCentered($"{Green}│ [1] EASY MODE (Danger: █░░░░░░░░░)       │{Reset}");
         DrawCentered($"{Green}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
-
-        // HARD OPTION
         DrawCentered($"{Yellow}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Yellow}│ [2] {Bold}HARD MODE{Reset}{Yellow}                            │{Reset}");
-        DrawCentered($"{Yellow}│     DANGER: █████░░░░░  (25ms / 3 HP)    │{Reset}");
+        DrawCentered($"{Yellow}│ [2] HARD MODE (Danger: █████░░░░░)       │{Reset}");
         DrawCentered($"{Yellow}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
-
-        // EXTREME OPTION
         DrawCentered($"{Red}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Red}│ [3] {Bold}EXTREME MODE{Reset}{Red}                         │{Reset}");
-        DrawCentered($"{Red}│     DANGER: ██████████  (20ms / 2 HP)    │{Reset}");
+        DrawCentered($"{Red}│ [3] EXTREME MODE (Danger: ██████████)    │{Reset}");
         DrawCentered($"{Red}└──────────────────────────────────────────┘{Reset}");
-
-        Console.WriteLine("\n");
-        DrawCentered($"{Gray}Select number to confirm or [ESC] for Menu{Reset}");
-
         var key = Console.ReadKey(true).Key;
         if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; currentState = State.Menu; }
         if (key == ConsoleKey.D2) { gameSpeed = 25; difficultyName = "Hard"; healthLimit = 3; maxSpawnCount = 2; currentState = State.Menu; }
@@ -182,24 +241,17 @@ class TurboRacerGame
         if (key == ConsoleKey.Escape) currentState = State.Menu;
     }
 
-    void DrawDatabase()
+    void ResetGame()
     {
-        Console.Clear();
-        Console.WriteLine("\n\n");
-        DrawCentered($"{Yellow}═══ MISSION HISTORY DATABASE ═══{Reset}");
-        if (!scoreHistory.Any()) DrawCentered($"{Gray}No records found.{Reset}");
-        else
-        {
-            DrawCentered($"{Green}ALL-TIME HIGH: {scoreHistory.Max()}{Reset}");
-            foreach (var s in scoreHistory.AsEnumerable().Reverse().Take(8))
-                DrawCentered($"{White}Entry: {s:D6}{Reset}");
-        }
-        Console.WriteLine("\n\n" + Gray + "Press any key to go back" + Reset);
-        Console.ReadKey(true);
-        currentState = State.Menu;
-    }
+        player = new Player();
+        player.Lives = healthLimit;
 
-    void ResetGame() { player = new Player(); player.Lives = healthLimit; player.CarColor = playerColors[rng.Next(playerColors.Length)]; entities.Clear(); }
+        // Randomize Appearance for every attempt
+        player.CarColor = brightColors[rng.Next(brightColors.Length)];
+        player.Sprite = carModels[rng.Next(carModels.Length)];
+
+        entities.Clear();
+    }
 
     void UpdateGame()
     {
@@ -220,7 +272,7 @@ class TurboRacerGame
                 if (entities[i] is Obstacle)
                 {
                     player.Lives--;
-                    if (player.Lives <= 0) { SaveScoreToFile(player.Score); currentState = State.GameOver; return; }
+                    if (player.Lives <= 0) { SaveScoreToFile(player.Name, player.Score); currentState = State.GameOver; return; }
                 }
                 else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) player.Lives++; }
                 entities.RemoveAt(i);
@@ -256,8 +308,7 @@ class TurboRacerGame
             {
                 if (y >= player.Y - 1 && y <= player.Y + 1 && x >= player.X - 2 && x <= player.X + 2)
                 {
-                    string car = "o---o| A |o---o";
-                    canvas.Append($"{player.CarColor}{car.Substring((y - (player.Y - 1)) * 5, 5)[x - (player.X - 2)]}{Reset}");
+                    canvas.Append($"{player.CarColor}{player.Sprite[y - (player.Y - 1)][x - (player.X - 2)]}{Reset}");
                 }
                 else
                 {
@@ -269,6 +320,7 @@ class TurboRacerGame
                 }
             }
             canvas.Append($"{Blue}║{Reset}     ");
+            if (y == 2) canvas.Append($"{Cyan}DRIVER: {player.Name}{Reset}");
             if (y == 3) canvas.Append($"{Yellow}SCORE: {player.Score:D6}{Reset}");
             if (y == 4) canvas.Append($"{Red}LIVES: {player.GetHearts()}{Reset}");
             canvas.Append("\n");
@@ -287,13 +339,13 @@ class TurboRacerGame
         DrawCentered($"{Red}{Bold}╚══════════════════════════════════════════╝{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{White}--- POST-CRASH DIAGNOSTIC ---{Reset}");
+        DrawCentered($"{Gray}DRIVER:         {Cyan}{player.Name}{Reset}");
         DrawCentered($"{Gray}FINAL DISTANCE: {Yellow}{player.Score} Units{Reset}");
-        DrawCentered($"{Gray}DIFFICULTY:     {White}{difficultyName.ToUpper()}{Reset}");
-        int pb = scoreHistory.Max();
-        if (player.Score >= pb) DrawCentered($"{Green}{Bold}!!! NEW RECORD DETECTED !!!{Reset}");
-        else DrawCentered($"{Gray}BEST RECORD:    {pb}{Reset}");
+
+        var best = scoreHistory.OrderByDescending(x => x.Score).FirstOrDefault();
+        if (player.Score >= best.Score) DrawCentered($"{Green}{Bold}!!! NEW HALL OF FAME RECORD !!!{Reset}");
+
         Console.WriteLine("\n" + Red + "VEHICLE STATUS: DESTROYED" + Reset);
-        DrawCentered($"{Cyan}RECORDS LOGGED TO: {ScoreFile}{Reset}");
         Console.WriteLine("\n\n" + Green + "PRESS ANY KEY TO RETURN TO HQ" + Reset);
         Console.ReadKey(true);
         currentState = State.Menu;
