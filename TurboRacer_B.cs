@@ -27,11 +27,7 @@ class Player
     public string GetHearts() => new string('♥', Math.Max(0, Lives));
 }
 
-struct ScoreEntry
-{
-    public string Name;
-    public int Score;
-}
+struct ScoreEntry { public string Name; public int Score; }
 
 abstract class Entity
 {
@@ -40,8 +36,8 @@ abstract class Entity
     public abstract string[] Sprite { get; }
     public abstract string Color { get; }
     public Entity(int x, int y) { X = x; Y = y; }
-    public void Update() => Y++;
-    public bool CheckCollision(Player p) => Math.Abs(Y - p.Y) < 2 && Math.Abs(X - p.X) < 3;
+    public virtual void Update() => Y++;
+    public virtual bool CheckCollision(Player p) => Math.Abs(Y - p.Y) < 2 && Math.Abs(X - p.X) < 3;
 }
 
 class Obstacle : Entity
@@ -56,6 +52,20 @@ class RepairKit : Entity
     public override string[] Sprite => new string[] { " +++ ", "(🔧)", " +++ " };
     public override string Color => "\x1b[32m";
     public RepairKit(int x, int y) : base(x, y) { }
+}
+
+class TrafficSign : Entity
+{
+    public override string[] Sprite => new string[]
+    {
+        "|]=======================================================[|",
+        "||    /STOP\\          /STOP\\          /STOP\\          /STOP\\ ||",
+        "|]=======================================================[|",
+        "||                                                       ||"
+    };
+    public override string Color => "\x1b[90m"; // Steel Gray
+    public TrafficSign(int x, int y) : base(x, y) { }
+    public override bool CheckCollision(Player p) => false;
 }
 
 // --- MAIN ENGINE ---
@@ -79,8 +89,10 @@ class TurboRacerGame
     string difficultyName = "Easy";
     int healthLimit = 5;
     int maxSpawnCount = 1;
-    int repairInterval = 200; // Default Easy
-    int lastRepairScore = 0;   // Track when the last kit spawned
+    int repairInterval = 200;
+    int signInterval = 250;
+    int lastRepairScore = 0;
+    int lastSignScore = 0;
 
     bool isRunning = true;
     int roadOffset = 0;
@@ -88,7 +100,6 @@ class TurboRacerGame
     const int RoadLeft = 5, RoadRight = 65, RoadHeight = 22;
     readonly int[] spawnPositions = { 12, 20, 27, 35, 42, 50, 57 };
     readonly string[] brightColors = { Green, Yellow, Cyan, Magenta, Bold + Blue };
-
     readonly string[][] carModels = {
         new string[] { "o---o", "| A |", "o---o" },
         new string[] { "/---\\", "| S |", "\\---/" },
@@ -120,10 +131,7 @@ class TurboRacerGame
         }
     }
 
-    void SaveScoreToFile(string name, int score)
-    {
-        try { File.AppendAllText(ScoreFile, $"{name}|{score}" + Environment.NewLine); scoreHistory.Add(new ScoreEntry { Name = name, Score = score }); } catch { }
-    }
+    void SaveScoreToFile(string name, int score) { try { File.AppendAllText(ScoreFile, $"{name}|{score}" + Environment.NewLine); scoreHistory.Add(new ScoreEntry { Name = name, Score = score }); } catch { } }
 
     void LoadScoresFromFile()
     {
@@ -212,15 +220,15 @@ class TurboRacerGame
         DrawCentered($"{Bold}{White}─── {Cyan}SELECT YOUR INTENSITY{White} ───{Reset}");
         Console.WriteLine("\n");
         DrawCentered($"{Green}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Green}│ [1] EASY MODE  (Kit: 200 pts / 5 HP)     │{Reset}");
+        DrawCentered($"{Green}│ [1] EASY MODE (HP: 5 / Kit: 200)         │{Reset}");
         DrawCentered($"{Green}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Yellow}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Yellow}│ [2] HARD MODE  (Kit: 300 pts / 3 HP)     │{Reset}");
+        DrawCentered($"{Yellow}│ [2] HARD MODE (HP: 3 / Kit: 300)         │{Reset}");
         DrawCentered($"{Yellow}└──────────────────────────────────────────┘{Reset}");
         Console.WriteLine();
         DrawCentered($"{Red}┌──────────────────────────────────────────┐{Reset}");
-        DrawCentered($"{Red}│ [3] EXTREME MODE (Kit: 400 pts / 2 HP)   │{Reset}");
+        DrawCentered($"{Red}│ [3] EXTREME MODE (HP: 2 / Kit: 400)      │{Reset}");
         DrawCentered($"{Red}└──────────────────────────────────────────┘{Reset}");
         var key = Console.ReadKey(true).Key;
         if (key == ConsoleKey.D1) { gameSpeed = 45; difficultyName = "Easy"; healthLimit = 5; maxSpawnCount = 1; repairInterval = 200; currentState = State.Menu; }
@@ -229,7 +237,7 @@ class TurboRacerGame
         if (key == ConsoleKey.Escape) currentState = State.Menu;
     }
 
-    void ResetGame() { player = new Player(); player.Lives = healthLimit; player.CarColor = brightColors[rng.Next(brightColors.Length)]; player.Sprite = carModels[rng.Next(carModels.Length)]; entities.Clear(); lastRepairScore = 0; }
+    void ResetGame() { player = new Player(); player.Lives = healthLimit; player.CarColor = brightColors[rng.Next(brightColors.Length)]; player.Sprite = carModels[rng.Next(carModels.Length)]; entities.Clear(); lastRepairScore = 0; lastSignScore = 0; }
 
     void UpdateGame()
     {
@@ -255,37 +263,25 @@ class TurboRacerGame
                 else if (entities[i] is RepairKit) { if (player.Lives < healthLimit) { player.Lives++; SoundRepair(); } }
                 entities.RemoveAt(i);
             }
-            else if (entities[i].Y > RoadHeight + 2) entities.RemoveAt(i);
+            else if (entities[i].Y > RoadHeight + 5) entities.RemoveAt(i);
         }
 
-        // --- NEW REPAIR SPAWN LOGIC ---
+        if (player.Score >= lastSignScore + signInterval) { entities.Add(new TrafficSign(35, 0)); lastSignScore = player.Score; }
+
         bool spawnRepairNow = false;
-        if (player.Score >= lastRepairScore + repairInterval)
-        {
-            spawnRepairNow = true;
-            lastRepairScore = player.Score;
-        }
+        if (player.Score >= lastRepairScore + repairInterval) { spawnRepairNow = true; lastRepairScore = player.Score; }
 
-        if (!entities.Any(e => e.Y < 5) && rng.Next(0, 10) > 5)
+        if (!entities.Any(e => e.Y < 5 && !(e is TrafficSign)) && rng.Next(0, 10) > 5)
         {
             int spawns = rng.Next(1, maxSpawnCount + 1);
             List<int> used = new List<int>();
-
-            // If a repair is due, make sure one of the spawns is a Repair Kit
             for (int i = 0; i < spawns; i++)
             {
                 int posIdx = rng.Next(spawnPositions.Length);
                 if (!used.Contains(posIdx))
                 {
-                    if (spawnRepairNow)
-                    {
-                        entities.Add(new RepairKit(spawnPositions[posIdx], 0));
-                        spawnRepairNow = false; // Kit spawned
-                    }
-                    else
-                    {
-                        entities.Add(new Obstacle(spawnPositions[posIdx], 0));
-                    }
+                    if (spawnRepairNow) { entities.Add(new RepairKit(spawnPositions[posIdx], 0)); spawnRepairNow = false; }
+                    else { entities.Add(new Obstacle(spawnPositions[posIdx], 0)); }
                     used.Add(posIdx);
                 }
             }
@@ -301,42 +297,33 @@ class TurboRacerGame
         StringBuilder canvas = new StringBuilder();
         string padding = new string(' ', Math.Max(0, (Console.WindowWidth / 2) - 55));
         canvas.Append("\n" + padding + $"{Cyan}═══ TURBO DRIVE XL ═══{Reset}\n");
-
         string heartBar = player.GetHearts();
-
         for (int y = 0; y < RoadHeight; y++)
         {
             canvas.Append(padding + $"{Blue}║{Reset}");
             for (int x = RoadLeft; x <= RoadRight; x++)
             {
-                // 1. Draw Player
                 if (y >= player.Y - 1 && y <= player.Y + 1 && x >= player.X - 2 && x <= player.X + 2)
-                {
-                    int spriteY = y - (player.Y - 1);
-                    int spriteX = x - (player.X - 2);
-                    canvas.Append($"{player.CarColor}{player.Sprite[spriteY][spriteX]}{Reset}");
-                }
+                    canvas.Append($"{player.CarColor}{player.Sprite[y - (player.Y - 1)][x - (player.X - 2)]}{Reset}");
                 else
                 {
-                    // 2. Draw Entities (Obstacles/Repair Kits)
-                    var ent = entities.FirstOrDefault(e => y >= e.Y - 1 && y <= e.Y + 1 && x >= e.X - 2 && x <= e.X + 2);
-
+                    var ent = entities.FirstOrDefault(e => {
+                        int h = e.Sprite.Length / 2;
+                        int w = e.Sprite[0].Length / 2;
+                        return y >= e.Y - h && y <= e.Y + h && x >= e.X - w && x <= e.X + w;
+                    });
                     if (ent != null)
                     {
-                        int spriteY = y - (ent.Y - 1);
-                        int spriteX = x - (ent.X - 2);
-
-                        // SAFETY CHECK: Ensure we are within the 3x5 sprite bounds
-                        if (spriteY >= 0 && spriteY < ent.Sprite.Length && spriteX >= 0 && spriteX < ent.Sprite[spriteY].Length)
+                        int sY = y - (ent.Y - (ent.Sprite.Length / 2));
+                        int sX = x - (ent.X - (ent.Sprite[0].Length / 2));
+                        if (sY >= 0 && sY < ent.Sprite.Length && sX >= 0 && sX < ent.Sprite[sY].Length)
                         {
-                            canvas.Append($"{ent.Color}{ent.Sprite[spriteY][spriteX]}{Reset}");
+                            string c = ent.Sprite[sY][sX].ToString();
+                            if (ent is TrafficSign && (c == "S" || c == "T" || c == "O" || c == "P")) canvas.Append($"{Red}{c}{Reset}");
+                            else canvas.Append($"{ent.Color}{c}{Reset}");
                         }
-                        else
-                        {
-                            canvas.Append(" ");
-                        }
+                        else canvas.Append(" ");
                     }
-                    // 3. Draw Road Features
                     else if (x == RoadLeft || x == RoadRight) canvas.Append($"{Gray}█{Reset}");
                     else if ((x == 20 || x == 35 || x == 50) && (y + roadOffset) % 4 == 0) canvas.Append($"{White}¦{Reset}");
                     else canvas.Append(" ");
